@@ -41,8 +41,8 @@ class SetupContext:
         self.config = SetupConfig()
         self.scripts_entrypoint = "linktools_scripts"
         self.updater_entrypoint = "linktools_updater"
-        self.release = os.environ.get("RELEASE", "false").lower() == "true"
-        self.develop = os.environ.get("SETUP_EDITABLE_MODE", "0") == "1"
+        self.release = os.environ.get("RELEASE", "false").lower() in ("true", "1", "yes")
+        self.develop = os.environ.get("SETUP_EDITABLE_MODE", "false").lower() in ("true", "1", "yes")
         self.version = self._fill_version()
         self._fill_dependencies()
         self._fill_entry_points()
