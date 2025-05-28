@@ -182,6 +182,6 @@ class SetupContext:
                         }, fd_out)
 
 
-def setup(dist: setuptools.Distribution) -> None:
+def finalize_distribution_options(dist: setuptools.Distribution) -> None:
     context = SetupContext(dist)
     context.convert_files()
