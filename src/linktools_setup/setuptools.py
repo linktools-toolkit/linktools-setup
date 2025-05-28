@@ -74,26 +74,28 @@ class SetupContext:
         return version
 
     def _fill_dependencies(self):
-        deps = self.config.get("tool", "linktools", "dependencies", "file")
-        if isinstance(deps, dict):
+        file = self.config.get("tool", "linktools", "dependencies", "file")
+        if file:
             dist_install_requires = self.dist.install_requires = self.dist.metadata.install_requires = \
                 getattr(self.dist.metadata, "install_requires", None) or []
             dist_extras_require = self.dist.extras_require = self.dist.metadata.extras_require = \
                 getattr(self.dist.metadata, "extras_require", None) or {}
 
             install_requires, extras_require = [], {}
-            with open(deps.get("file"), "rt", encoding="utf-8") as fd:
+            with open(file, "rt", encoding="utf-8") as fd:
                 data = yaml.safe_load(fd)
                 # install_requires = dependencies + dev-dependencies
                 install_requires.extend(data.get("dependencies", []))
-                install_requires.extend(
-                    data.get("release-dependencies") if self.release else data.get("dev-dependencies"))
+                if self.develop:
+                    install_requires.extend(data.get("dev-dependencies", []))
+                if self.release:
+                    install_requires.extend(data.get("release-dependencies", []))
                 # extras_require = optional-dependencies
                 extras_require.update(data.get("optional-dependencies", {}))
-                all_requires = []
-                for requires in extras_require.values():
-                    all_requires.extend(requires)
-                extras_require["all"] = all_requires
+                if extras_require:
+                    all_requires = extras_require.setdefault("all", [])
+                    for requires in extras_require.values():
+                        all_requires.extend(requires)
 
             dist_install_requires.extend(install_requires)
             dist_extras_require.update(extras_require)
