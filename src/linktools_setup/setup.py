@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import abc
+import hashlib
 import json
 import logging
 import os
@@ -206,12 +207,22 @@ class SetupContext:
                 attr=script.get("object", self.const.default_script_attr)
             )
         elif "path" in script:
-            yield from self._iter_module_scripts(
-                path=script.get("path"),
-                prefix=f"{script.get("module").rstrip(".")}.",
-                object=script.get("object", self.const.default_script_object),
-                attr=script.get("object", self.const.default_script_attr),
-            )
+            module = script.get("module").rstrip(".")
+            path = script.get("path")
+            root_path = os.path.join(path, "__init__.py")
+            if os.path.exists(root_path):
+                m = hashlib.md5()
+                m.update(root_path.encode())
+                yield ModuleEntryPoint(
+                    name=f"module-{m.hexdigest()}",
+                    module=module,
+                )
+                yield from self._iter_module_scripts(
+                    path=script.get("path"),
+                    prefix=f"{module}.",
+                    object=script.get("object", self.const.default_script_object),
+                    attr=script.get("object", self.const.default_script_attr),
+                )
 
     def _iter_module_scripts(self, path, prefix, object, attr, parents=None):
         for module_info in pkgutil.iter_modules([path]):
@@ -219,13 +230,8 @@ class SetupContext:
                 spec = module_info.module_finder.find_spec(module_info.name)
                 module = module_from_spec(spec)
                 spec.loader.exec_module(module)
-                name = getattr(module, self.const.module_command_key, module_info.name)
                 items = list(parents or [])
                 items.append(getattr(module, self.const.module_command_key, module_info.name))
-                yield ModuleEntryPoint(
-                    name=name,
-                    module=f"{prefix}{module_info.name}",
-                )
                 yield from self._iter_module_scripts(
                     path=os.path.join(path, module_info.name),
                     prefix=f"{prefix}{module_info.name}.",
@@ -273,8 +279,8 @@ if __name__ == '__main__':
 
     scripts = [{
         "path": os.path.expanduser("~/Projects/linktools/src/linktools/cli/commands"),
-        "module": "linktools.cli.commands.common",
+        "module": "linktools.cli.commands",
     }]
     print([ep.as_script() for ep in context._parse_scripts(scripts)])
-    print([ep.as_script() for ep in context._parse_scripts(scripts) if isinstance(ep, ScriptEntryPoint)])
-    print([ep.as_script() for ep in context._parse_scripts(scripts) if not isinstance(ep, SubScriptEntryPoint)])
+    # print([ep.as_script() for ep in context._parse_scripts(scripts) if isinstance(ep, ScriptEntryPoint)])
+    # print([ep.as_script() for ep in context._parse_scripts(scripts) if not isinstance(ep, SubScriptEntryPoint)])
