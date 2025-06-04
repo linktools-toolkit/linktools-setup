@@ -207,6 +207,3 @@ Apache 2.0 licenses
 
 The following components are provided under the Apache License. See project link for details.
 The text of each license is the standard Apache 2.0 license.
-
-   pidcat.py reference from JakeWharton/pidcat: https://github.com/JakeWharton/pidcat Apache 2.0
-   fake-useragent reference from hellysmile/fake-useragent: https://github.com/hellysmile/fake-useragent Apache 2.0

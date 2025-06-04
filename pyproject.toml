@@ -16,7 +16,7 @@ Homepage = "https://github.com/linktools-toolkit/linktools-setup"
 Repository = "https://github.com/linktools-toolkit/linktools-setup.git"
 
 [project.entry-points."setuptools.finalize_distribution_options"]
-linktools_setup = "linktools_setup.setuptools:finalize_distribution_options"
+linktools_setup = "linktools_setup.setup:finalize_distribution_options"
 
 [tool.setuptools.packages.find]
 where = ["src"]

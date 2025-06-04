@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+import abc
 import json
 import logging
 import os
 import pkgutil
 import re
-from typing import Any
+from importlib.util import module_from_spec
+from typing import Any, Optional
 
 import setuptools
 import yaml
@@ -13,6 +15,57 @@ from jinja2 import Template
 from setuptools.config.pyprojecttoml import load_file
 
 logger = logging.getLogger("linktools_setup")
+
+
+class EntryPoint(abc.ABC):
+
+    @abc.abstractmethod
+    def as_script(self) -> str:
+        pass
+
+
+class ScriptEntryPoint(EntryPoint):
+
+    def __init__(self, name: str, module: str, object: Optional[str], attr: Optional[str]):
+        self.name = name
+        self.module = module
+        self.object = object
+        self.attr = attr
+
+    def as_script(self) -> str:
+        name = self.name.replace('_', '-')
+        value = self.module
+        if self.object:
+            value = f"{value}:{self.object}"
+            if self.attr:
+                value = f"{value}.{self.attr}"
+        return f"{name} = {value}"
+
+
+class SubScriptEntryPoint(ScriptEntryPoint):
+    pass
+
+
+class ModuleEntryPoint(EntryPoint):
+
+    def __init__(self, name: str, module: str):
+        self.name = name
+        self.module = module
+
+    def as_script(self) -> str:
+        name = self.name.replace('_', '-')
+        value = self.module
+        return f"{name} = {value}"
+
+
+class SetupConst:
+
+    def __init__(self):
+        self.module_command_key = "__command__"
+        self.scripts_entrypoint = "linktools_scripts"
+        self.updater_entrypoint = "linktools_updater"
+        self.default_script_object = "command"
+        self.default_script_attr = "main"
 
 
 class SetupConfig:
@@ -38,9 +91,8 @@ class SetupContext:
 
     def __init__(self, dist: setuptools.Distribution):
         self.dist = dist
+        self.const = SetupConst()
         self.config = SetupConfig()
-        self.scripts_entrypoint = "linktools_scripts"
-        self.updater_entrypoint = "linktools_updater"
         self.release = os.environ.get("RELEASE", "false").lower() in ("true", "1", "yes")
         self.develop = os.environ.get("SETUP_EDITABLE_MODE", "false").lower() in ("true", "1", "yes")
         self.version = self._fill_version()
@@ -106,59 +158,88 @@ class SetupContext:
             dist_entry_points = self.dist.entry_points = self.dist.metadata.entry_points = \
                 getattr(self.dist.metadata, "entry_points", None) or {}
             console_scripts = dist_entry_points.setdefault("console_scripts", [])
-            for script in self._parse_scripts(scripts):
-                console_scripts.append(script)
+            for entry_point in self._parse_scripts(scripts):
+                if isinstance(entry_point, ScriptEntryPoint):
+                    console_scripts.append(entry_point.as_script())
 
         scripts = self.config.get("tool", "linktools", "scripts", "gui")
         if scripts:
             dist_entry_points = self.dist.entry_points = self.dist.metadata.entry_points = \
                 getattr(self.dist.metadata, "entry_points", None) or {}
             console_scripts = dist_entry_points.setdefault("gui_scripts", [])
-            for script in self._parse_scripts(scripts):
-                console_scripts.append(script)
+            for entry_point in self._parse_scripts(scripts):
+                if isinstance(entry_point, ScriptEntryPoint):
+                    console_scripts.append(entry_point.as_script())
 
         scripts = self.config.get("tool", "linktools", "scripts", "commands")
         if scripts:
             dist_entry_points = self.dist.entry_points = self.dist.metadata.entry_points = \
                 getattr(self.dist.metadata, "entry_points", None) or {}
             console_scripts = dist_entry_points.setdefault("console_scripts", [])
-            linktools_scripts = dist_entry_points.setdefault(self.scripts_entrypoint, [])
-            for script in self._parse_scripts(scripts):
-                console_scripts.append(script)
-                linktools_scripts.append(script)
+            linktools_scripts = dist_entry_points.setdefault(self.const.scripts_entrypoint, [])
+            for entry_point in self._parse_scripts(scripts):
+                if isinstance(entry_point, ScriptEntryPoint):
+                    console_scripts.append(entry_point.as_script())
+                if not isinstance(entry_point, SubScriptEntryPoint):
+                    linktools_scripts.append(entry_point.as_script())
 
         scripts = self.config.get("tool", "linktools", "scripts", "update-command")
         if scripts:
             dist_entry_points = self.dist.entry_points = self.dist.metadata.entry_points = \
                 getattr(self.dist.metadata, "entry_points", None) or {}
-            linktools_updater = dist_entry_points.setdefault(self.updater_entrypoint, [])
-            for script in self._parse_scripts(scripts):
-                linktools_updater.append(script)
+            linktools_updater = dist_entry_points.setdefault(self.const.updater_entrypoint, [])
+            for entry_point in self._parse_scripts(scripts):
+                linktools_updater.append(entry_point.as_script())
 
-    @classmethod
-    def _parse_scripts(cls, scripts):
+    def _parse_scripts(self, scripts):
         if not isinstance(scripts, (list, tuple, set)):
             scripts = [scripts]
         for script in scripts:
-            yield from cls._parse_script(script)
+            yield from self._parse_script(script)
 
-    @classmethod
-    def _parse_script(cls, script):
+    def _parse_script(self, script):
         if "name" in script:
-            name = script.get("name")
-            module = script.get("module")
-            object = script.get("object", "command")
-            attr = script.get("object", "main")
-            yield f"{name.replace('_', '-')} = {module}:{object}.{attr}"
-        if "path" in script:
-            path = script.get("path")
-            prefix = script.get("prefix")
-            module = script.get("module")
-            object = script.get("object", "command")
-            attr = script.get("object", "main")
-            for _, name, _ in pkgutil.iter_modules([path]):
-                if not name.startswith("_"):
-                    yield f"{prefix}-{name.replace('_', '-')} = {module}.{name}:{object}.{attr}"
+            yield SubScriptEntryPoint(
+                name=script.get("name"),
+                module=script.get("module"),
+                object=script.get("object", self.const.default_script_object),
+                attr=script.get("object", self.const.default_script_attr)
+            )
+        elif "path" in script:
+            yield from self._iter_module_scripts(
+                path=script.get("path"),
+                prefix=f"{script.get("module").rstrip(".")}.",
+                object=script.get("object", self.const.default_script_object),
+                attr=script.get("object", self.const.default_script_attr),
+            )
+
+    def _iter_module_scripts(self, path, prefix, object, attr, parents=None):
+        for module_info in pkgutil.iter_modules([path]):
+            if module_info.ispkg:
+                spec = module_info.module_finder.find_spec(module_info.name)
+                module = module_from_spec(spec)
+                spec.loader.exec_module(module)
+                name = getattr(module, self.const.module_command_key, module_info.name)
+                items = list(parents or [])
+                items.append(getattr(module, self.const.module_command_key, module_info.name))
+                yield ModuleEntryPoint(
+                    name=name,
+                    module=f"{prefix}{module_info.name}",
+                )
+                yield from self._iter_module_scripts(
+                    path=os.path.join(path, module_info.name),
+                    prefix=f"{prefix}{module_info.name}.",
+                    object=object,
+                    attr=attr,
+                    parents=items,
+                )
+            elif not module_info.name.startswith("_"):
+                yield SubScriptEntryPoint(
+                    name=f"{'-'.join(parents)}-{module_info.name}" if parents else module_info.name,
+                    module=f"{prefix}{module_info.name}",
+                    object=object,
+                    attr=attr,
+                )
 
     def convert_files(self):
         convert = self.config.get("tool", "linktools", "convert")
@@ -185,3 +266,15 @@ class SetupContext:
 def finalize_distribution_options(dist: setuptools.Distribution) -> None:
     context = SetupContext(dist)
     context.convert_files()
+
+
+if __name__ == '__main__':
+    context = SetupContext(setuptools.Distribution())
+
+    scripts = [{
+        "path": os.path.expanduser("~/Projects/linktools/src/linktools/cli/commands"),
+        "module": "linktools.cli.commands.common",
+    }]
+    print([ep.as_script() for ep in context._parse_scripts(scripts)])
+    print([ep.as_script() for ep in context._parse_scripts(scripts) if isinstance(ep, ScriptEntryPoint)])
+    print([ep.as_script() for ep in context._parse_scripts(scripts) if not isinstance(ep, SubScriptEntryPoint)])
