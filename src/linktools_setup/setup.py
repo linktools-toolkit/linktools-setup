@@ -200,7 +200,7 @@ class SetupContext:
 
     def _parse_script(self, script):
         if "name" in script:
-            yield SubScriptEntryPoint(
+            yield ScriptEntryPoint(
                 name=script.get("name"),
                 module=script.get("module"),
                 object=script.get("object", self.const.default_script_object),
@@ -277,10 +277,11 @@ def finalize_distribution_options(dist: setuptools.Distribution) -> None:
 if __name__ == '__main__':
     context = SetupContext(setuptools.Distribution())
 
-    scripts = [{
-        "path": os.path.expanduser("~/Projects/linktools/src/linktools/cli/commands"),
-        "module": "linktools.cli.commands",
-    }]
-    print([ep.as_script() for ep in context._parse_scripts(scripts)])
+    # scripts = [{
+    #     "path": os.path.expanduser("~/Projects/linktools/src/linktools/cli/commands"),
+    #     "module": "linktools.cli.commands",
+    # }]
+    scripts = {"name": "ct-cntr", "module": "linktools_cntr.__main__"}
+    # print([ep.as_script() for ep in context._parse_scripts(scripts)])
     # print([ep.as_script() for ep in context._parse_scripts(scripts) if isinstance(ep, ScriptEntryPoint)])
-    # print([ep.as_script() for ep in context._parse_scripts(scripts) if not isinstance(ep, SubScriptEntryPoint)])
+    print([ep.as_script() for ep in context._parse_scripts(scripts) if not isinstance(ep, SubScriptEntryPoint)])
