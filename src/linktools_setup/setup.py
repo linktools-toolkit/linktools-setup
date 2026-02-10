@@ -8,6 +8,7 @@ import os
 import pkgutil
 import re
 from importlib.util import module_from_spec
+from pathlib import Path
 from typing import Any, Optional
 
 import setuptools
@@ -63,8 +64,8 @@ class SetupConst:
 
     def __init__(self):
         self.module_command_key = "__command__"
+        self.capability_entrypoint = "linktools_capability"
         self.scripts_entrypoint = "linktools_scripts"
-        self.updater_entrypoint = "linktools_updater"
         self.default_script_object = "command"
         self.default_script_attr = "main"
 
@@ -184,13 +185,15 @@ class SetupContext:
                 if not isinstance(entry_point, SubScriptEntryPoint):
                     linktools_scripts.append(entry_point.as_script())
 
-        scripts = self.config.get("tool", "linktools", "scripts", "update-command")
-        if scripts:
+        capability = self.config.get("tool", "linktools", "scripts", "capability")
+        if capability:
             dist_entry_points = self.dist.entry_points = self.dist.metadata.entry_points = \
                 getattr(self.dist.metadata, "entry_points", None) or {}
-            linktools_updater = dist_entry_points.setdefault(self.const.updater_entrypoint, [])
-            for entry_point in self._parse_scripts(scripts):
-                linktools_updater.append(entry_point.as_script())
+            linktools_module = dist_entry_points.setdefault(self.const.capability_entrypoint, [])
+            linktools_module.append(ModuleEntryPoint(
+                name=f"module-{self.get_md5(capability)}",
+                module=capability,
+            ).as_script())
 
     def _parse_scripts(self, scripts):
         if not isinstance(scripts, (list, tuple, set)):
@@ -209,16 +212,13 @@ class SetupContext:
         elif "path" in script:
             module = script.get("module").rstrip(".")
             path = script.get("path")
-            root_path = os.path.join(path, "__init__.py")
-            if os.path.exists(root_path):
-                m = hashlib.md5()
-                m.update(root_path.encode())
+            if not os.path.isfile(path):
                 yield ModuleEntryPoint(
-                    name=f"module-{m.hexdigest()}",
+                    name=f"module-{self.get_md5(path)}",
                     module=module,
                 )
                 yield from self._iter_module_scripts(
-                    path=script.get("path"),
+                    path=path,
                     prefix=f"{module}.",
                     object=script.get("object", self.const.default_script_object),
                     attr=script.get("object", self.const.default_script_attr),
@@ -255,18 +255,29 @@ class SetupContext:
                 source = item.get("source")
                 dest = item.get("dest")
                 if type == "jinja2":
-                    with open(source, "rt", encoding="utf-8") as fd_in, open(dest, "wt", encoding="utf-8") as fd_out:
-                        fd_out.write(Template(fd_in.read()).render(
-                            metadata=self.dist.metadata,
-                            **{k: v for k, v in vars(self).items() if k[0] not in "_"},
-                        ))
+                    with open(source, "rt", encoding="utf-8") as fd_in:
+                        Path(dest).parent.mkdir(parents=True, exist_ok=True)
+                        with open(dest, "wt", encoding="utf-8") as fd_out:
+                            fd_out.write(Template(fd_in.read()).render(
+                                metadata=self.dist.metadata,
+                                **{k: v for k, v in vars(self).items() if k[0] not in "_"},
+                            ))
                 elif type == "yml2json":
-                    with open(source, "rb") as fd_in, open(dest, "wt") as fd_out:
-                        json.dump({
-                            key: value
-                            for key, value in yaml.safe_load(fd_in).items()
-                            if key[0] not in ("$",)
-                        }, fd_out)
+                    with open(source, "rb") as fd_in:
+                        Path(dest).parent.mkdir(parents=True, exist_ok=True)
+                        with open(dest, "wt") as fd_out:
+                            json.dump({
+                                key: value
+                                for key, value in yaml.safe_load(fd_in).items()
+                                if key[0] not in ("$",)
+                            }, fd_out)
+
+    def get_md5(self, data):
+        if isinstance(data, str):
+            data = data.encode()
+        m = hashlib.md5()
+        m.update(data)
+        return m.hexdigest()
 
 
 def finalize_distribution_options(dist: setuptools.Distribution) -> None:
