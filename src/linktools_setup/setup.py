@@ -205,27 +205,26 @@ class SetupConfig:
             raise ValueError("%s must be a non-empty string or null" % label)
         return value
 
-    def _resolve_source(self, value: Any, label: str, directory: bool = False) -> str:
+    def _resolve_path(self, value: Any, label: str) -> Path:
         if not isinstance(value, str) or not value:
             raise ValueError("%s must be a non-empty relative path" % label)
         if os.path.isabs(value):
             raise ValueError("%s must be relative: %s" % (label, value))
         path = (self.root_path / value).resolve()
         self._require_inside_root(path, label)
+        return path
+
+    def _resolve_source(self, value: Any, label: str, directory: bool = False) -> str:
+        path = self._resolve_path(value, label)
         if directory:
-            if not path.is_dir():
-                raise ValueError("%s directory does not exist: %s" % (label, value))
+            if path.exists() and not path.is_dir():
+                raise ValueError("%s must be a directory: %s" % (label, value))
         elif not path.is_file():
             raise ValueError("%s file does not exist: %s" % (label, value))
         return value
 
     def _resolve_dest(self, value: Any, label: str) -> str:
-        if not isinstance(value, str) or not value:
-            raise ValueError("%s must be a non-empty relative path" % label)
-        if os.path.isabs(value):
-            raise ValueError("%s must be relative: %s" % (label, value))
-        path = (self.root_path / value).resolve()
-        self._require_inside_root(path, label)
+        self._resolve_path(value, label)
         return value
 
     def _require_inside_root(self, path: Path, label: str) -> None:
