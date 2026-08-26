@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+import os
 from pathlib import Path
-from typing import List
+from typing import List, Tuple
 
 import setuptools
 from setuptools.command.build_py import build_py as _build_py
@@ -21,6 +22,10 @@ def _get_context(dist: setuptools.Distribution) -> SetupContext:
     return context
 
 
+def _normalize(path: str) -> str:
+    return os.path.normcase(os.path.normpath(path))
+
+
 class _LinktoolsBuildPy(_build_py):
 
     def run(self) -> None:
@@ -28,14 +33,37 @@ class _LinktoolsBuildPy(_build_py):
         super().run()
 
     def get_source_files(self) -> List[str]:
-        files = list(super().get_source_files())
         config = SetupConfig()
+        convert = config.get("convert", default=[])
+        generated = {_normalize(item["dest"]) for item in convert}
+        files = [
+            path
+            for path in super().get_source_files()
+            if _normalize(path) not in generated
+        ]
         files.append(_CONFIG_FILE)
-        files.extend(
-            item["source"]
-            for item in config.get("convert", default=[])
-        )
+        files.extend(item["source"] for item in convert)
         return list(dict.fromkeys(files))
+
+    def get_data_files_without_manifest(self) -> List[Tuple[str, str, str, List[str]]]:
+        config = SetupConfig()
+        generated = [Path(item["dest"]).resolve() for item in config.get("convert", default=[])]
+        result = []
+        for package, src_dir, build_dir, filenames in super().get_data_files_without_manifest():
+            source_root = Path(src_dir).resolve()
+            excluded = set()
+            for path in generated:
+                try:
+                    excluded.add(_normalize(str(path.relative_to(source_root))))
+                except ValueError:
+                    continue
+            result.append((
+                package,
+                src_dir,
+                build_dir,
+                [filename for filename in filenames if _normalize(filename) not in excluded],
+            ))
+        return result
 
 
 def finalize_distribution_options(dist: setuptools.Distribution) -> None:
