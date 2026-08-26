@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "linktools-setup"
 description = "linktools toolkit"
-requires-python = ">=3.6"
+requires-python = ">=3.7"
 authors = [{name = "Hu Ji", email = "669898595@qq.com"}]
 license = "Apache-2.0"
 dependencies = ["pyyaml", "jinja2", "setuptools>=64.0.0,<77.0.0"]
@@ -17,6 +17,9 @@ Repository = "https://github.com/linktools-toolkit/linktools-setup.git"
 
 [project.entry-points."setuptools.finalize_distribution_options"]
 linktools_setup = "linktools_setup.setup:finalize_distribution_options"
+
+[project.entry-points."setuptools.file_finders"]
+linktools = "linktools_setup.setup:find_linktools_files"
 
 [tool.setuptools.packages.find]
 where = ["src"]
