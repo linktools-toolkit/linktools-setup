@@ -14,7 +14,7 @@ _CONFIG_FILE = "linktools.yml"
 _CONTEXT_ATTR = "_linktools_setup_context"
 
 
-def _get_context(dist: setuptools.Distribution) -> SetupContext:
+def get_setup_context(dist: setuptools.Distribution) -> SetupContext:
     context = getattr(dist, _CONTEXT_ATTR, None)
     if context is None:
         context = SetupContext(dist)
@@ -27,10 +27,6 @@ def _normalize(path: str) -> str:
 
 
 class _LinktoolsBuildPy(_build_py):
-
-    def run(self) -> None:
-        _get_context(self.distribution).convert_files()
-        super().run()
 
     def get_source_files(self) -> List[str]:
         config = SetupConfig()
@@ -70,14 +66,10 @@ def finalize_distribution_options(dist: setuptools.Distribution) -> None:
     if not Path(_CONFIG_FILE).is_file():
         return
 
-    context = SetupContext(dist)
-    setattr(dist, _CONTEXT_ATTR, context)
+    get_setup_context(dist)
 
     cmdclass = getattr(dist, "cmdclass", None)
     if cmdclass is None:
         cmdclass = {}
         dist.cmdclass = cmdclass
     cmdclass["build_py"] = _LinktoolsBuildPy
-
-
-finalize_distribution_options.order = 100
