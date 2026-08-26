@@ -140,9 +140,10 @@ class SetupConfig:
         version = config.get("version")
         if not isinstance(version, str) or not version.strip():
             raise ValueError("config.version must be a non-empty string")
+        version = version.strip()
         if version.startswith("v"):
             raise ValueError("config.version must not start with 'v'")
-        config["version"] = version.strip()
+        config["version"] = version
 
         name = config.get("name")
         if name is not None and (not isinstance(name, str) or not name.strip()):
@@ -566,6 +567,8 @@ def find_linktools_files(dirname: str) -> Iterable[str]:
 
 
 def finalize_distribution_options(dist: setuptools.Distribution) -> None:
+    if not (Path.cwd() / _CONFIG_FILE).is_file():
+        return
     context = SetupContext(dist)
     context.convert_files()
 
