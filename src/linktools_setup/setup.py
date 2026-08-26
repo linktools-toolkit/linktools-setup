@@ -33,6 +33,7 @@ _ROOT_FIELDS = {
     "optional-dependencies",
     "scripts",
     "convert",
+    "checks",
 }
 _SCRIPT_FIELDS = {"capability", "console", "gui", "commands"}
 _SCRIPT_ITEM_FIELDS = {"name", "path", "module", "object", "attr"}
