@@ -24,17 +24,6 @@ logger = logging.getLogger("linktools_setup")
 
 _CONFIG_FILE = "linktools.yml"
 _PROJECT_FILE = "pyproject.toml"
-_ROOT_FIELDS = {
-    "name",
-    "version",
-    "dependencies",
-    "dev-dependencies",
-    "release-dependencies",
-    "optional-dependencies",
-    "scripts",
-    "convert",
-    "checks",
-}
 _SCRIPT_FIELDS = {"capability", "console", "gui", "commands"}
 _SCRIPT_ITEM_FIELDS = {"name", "path", "module", "object", "attr"}
 _CONVERT_FIELDS = {"type", "source", "dest"}
@@ -142,7 +131,6 @@ class SetupConfig:
             raise ValueError("invalid Linktools config %s: %s" % (self.path, exc)) from exc
 
         config = self._require_mapping(data, "config")
-        self._reject_unknown(config, _ROOT_FIELDS, "config")
 
         version = config.get("version")
         if not isinstance(version, str) or not version.strip():
