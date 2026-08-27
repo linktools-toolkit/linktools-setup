@@ -6,7 +6,6 @@ import json
 import logging
 import os
 import pkgutil
-import re
 from importlib.util import module_from_spec
 from pathlib import Path
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Sequence
@@ -333,16 +332,6 @@ class SetupContext:
         version = self.dist.metadata.version
         if not version:
             version = self.config.get("version")
-            if not self.release:
-                items = []
-                for item in version.split("."):
-                    find = re.findall(r"^\d+", item)
-                    if find:
-                        items.append(int(find[0]))
-                if not items:
-                    raise ValueError("config.version has no numeric version components")
-                version = ".".join(map(str, items))
-                version = "%s.post100.dev0" % version
             self.dist.metadata.version = version
         return version
 
