@@ -23,6 +23,11 @@ logger = logging.getLogger("linktools_setup")
 
 _CONFIG_FILE = "linktools.yml"
 _PROJECT_FILE = "pyproject.toml"
+_MODULE_COMMAND_KEY = "__command__"
+_CAPABILITY_GROUP = "linktools_capability"
+_SCRIPTS_GROUP = "linktools_scripts"
+_DEFAULT_SCRIPT_OBJECT = "command"
+_DEFAULT_SCRIPT_ATTR = "main"
 _SCRIPT_FIELDS = {"capability", "console", "gui", "commands"}
 _SCRIPT_ITEM_FIELDS = {"name", "path", "module", "object", "attr"}
 _CONVERT_FIELDS = {"type", "source", "dest"}
@@ -103,16 +108,6 @@ class ModuleEntryPoint(EntryPoint):
         return "%s = %s" % (name, self.module)
 
 
-class SetupConst:
-
-    def __init__(self):
-        self.module_command_key = "__command__"
-        self.capability_entrypoint = "linktools_capability"
-        self.scripts_entrypoint = "linktools_scripts"
-        self.default_script_object = "command"
-        self.default_script_attr = "main"
-
-
 class SetupConfig:
 
     def __init__(self, root_path: Optional[Path] = None):
@@ -165,6 +160,9 @@ class SetupConfig:
         config["scripts"] = self._validate_scripts(config.get("scripts", {}))
         config["convert"] = self._validate_convert(config.get("convert", []))
         return config
+
+    def __getitem__(self, key: str) -> Any:
+        return self._config[key]
 
     @staticmethod
     def _require_mapping(value: Any, label: str) -> Dict[str, Any]:
@@ -319,27 +317,50 @@ class SetupConfig:
 class SetupContext:
 
     def __init__(self, dist: setuptools.Distribution):
-        self.dist = dist
-        self.const = SetupConst()
+        self._dist = dist
         self.config = SetupConfig()
+        self.project = self._load_project()
+        self.groups = {
+            "capability": _CAPABILITY_GROUP,
+            "scripts": _SCRIPTS_GROUP,
+        }
         self.release = os.environ.get("RELEASE", "false").lower() in ("true", "1", "yes")
         self.develop = os.environ.get("SETUP_EDITABLE_MODE", "false").lower() in ("true", "1", "yes")
         self.version = self._fill_version()
         self._fill_dependencies()
         self._fill_entry_points()
 
+    def _load_project(self) -> Dict[str, Any]:
+        path = self.config.root_path / _PROJECT_FILE
+        try:
+            with path.open("rb") as file:
+                data = tomllib.load(file)
+        except (OSError, tomllib.TOMLDecodeError) as exc:
+            raise ValueError("invalid project config %s: %s" % (path, exc)) from exc
+        project = data.get("project")
+        if not isinstance(project, dict):
+            raise ValueError("pyproject.toml must define [project]")
+        return dict(project)
+
+    def get_template_context(self) -> Dict[str, Any]:
+        return {
+            key: value
+            for key, value in vars(self).items()
+            if not key.startswith("_")
+        }
+
     def _fill_version(self) -> str:
-        version = self.dist.metadata.version
+        version = self._dist.metadata.version
         if not version:
             version = self.config.get("version")
-            self.dist.metadata.version = version
+            self._dist.metadata.version = version
         return version
 
     def _fill_dependencies(self) -> None:
-        dist_install_requires = self.dist.install_requires = self.dist.metadata.install_requires = \
-            getattr(self.dist.metadata, "install_requires", None) or []
-        dist_extras_require = self.dist.extras_require = self.dist.metadata.extras_require = \
-            getattr(self.dist.metadata, "extras_require", None) or {}
+        dist_install_requires = self._dist.install_requires = self._dist.metadata.install_requires = \
+            getattr(self._dist.metadata, "install_requires", None) or []
+        dist_extras_require = self._dist.extras_require = self._dist.metadata.extras_require = \
+            getattr(self._dist.metadata, "extras_require", None) or {}
 
         install_requires: List[str] = []
         install_requires.extend(self.config.get("dependencies", default=[]))
@@ -365,8 +386,8 @@ class SetupContext:
         dist_extras_require.update(extras_require)
 
     def _entry_points(self) -> Dict[str, List[str]]:
-        entry_points = getattr(self.dist.metadata, "entry_points", None) or {}
-        self.dist.entry_points = self.dist.metadata.entry_points = entry_points
+        entry_points = getattr(self._dist.metadata, "entry_points", None) or {}
+        self._dist.entry_points = self._dist.metadata.entry_points = entry_points
         return entry_points
 
     def _fill_entry_points(self) -> None:
@@ -388,7 +409,7 @@ class SetupContext:
         if scripts:
             entry_points = self._entry_points()
             console_scripts = entry_points.setdefault("console_scripts", [])
-            linktools_scripts = entry_points.setdefault(self.const.scripts_entrypoint, [])
+            linktools_scripts = entry_points.setdefault(_SCRIPTS_GROUP, [])
             for entry_point in self._parse_scripts(scripts):
                 if isinstance(entry_point, ScriptEntryPoint):
                     console_scripts.append(entry_point.as_script())
@@ -398,7 +419,7 @@ class SetupContext:
         capability = self.config.get("scripts", "capability")
         if capability:
             linktools_module = self._entry_points().setdefault(
-                self.const.capability_entrypoint,
+                _CAPABILITY_GROUP,
                 [],
             )
             linktools_module.append(ModuleEntryPoint(
@@ -416,8 +437,8 @@ class SetupContext:
             yield ScriptEntryPoint(
                 name=script["name"],
                 module=script["module"],
-                object=script.get("object", self.const.default_script_object),
-                attr=script.get("attr", self.const.default_script_attr),
+                object=script.get("object", _DEFAULT_SCRIPT_OBJECT),
+                attr=script.get("attr", _DEFAULT_SCRIPT_ATTR),
             )
             return
 
@@ -430,8 +451,8 @@ class SetupContext:
         yield from self._iter_module_scripts(
             path=path,
             prefix="%s." % module,
-            object=script.get("object", self.const.default_script_object),
-            attr=script.get("attr", self.const.default_script_attr),
+            object=script.get("object", _DEFAULT_SCRIPT_OBJECT),
+            attr=script.get("attr", _DEFAULT_SCRIPT_ATTR),
         )
 
     def _iter_module_scripts(
@@ -450,7 +471,7 @@ class SetupContext:
                 module = module_from_spec(spec)
                 spec.loader.exec_module(module)
                 items = list(parents or [])
-                items.append(getattr(module, self.const.module_command_key, module_info.name))
+                items.append(getattr(module, _MODULE_COMMAND_KEY, module_info.name))
                 yield from self._iter_module_scripts(
                     path=os.path.join(path, module_info.name),
                     prefix="%s%s." % (prefix, module_info.name),
@@ -468,16 +489,14 @@ class SetupContext:
                 )
 
     def convert_files(self) -> None:
+        context = self.get_template_context()
         for item in self.config.get("convert", default=[]):
             source = self.config.root_path / item["source"]
             dest = self.config.root_path / item["dest"]
             dest.parent.mkdir(parents=True, exist_ok=True)
             if item["type"] == "jinja2":
                 with source.open("r", encoding="utf-8") as fd_in:
-                    rendered = Template(fd_in.read()).render(
-                        metadata=self.dist.metadata,
-                        **{key: value for key, value in vars(self).items() if not key.startswith("_")},
-                    )
+                    rendered = Template(fd_in.read()).render(**context)
                 dest.write_text(rendered, encoding="utf-8")
             elif item["type"] == "yml2json":
                 with source.open("r", encoding="utf-8") as fd_in:
@@ -549,56 +568,9 @@ def find_linktools_files(dirname: str) -> Iterable[str]:
     return result
 
 
-def _fill_project_metadata(dist: setuptools.Distribution) -> None:
-    path = Path(_PROJECT_FILE)
-    try:
-        with path.open("rb") as file:
-            data = tomllib.load(file)
-    except (OSError, tomllib.TOMLDecodeError) as exc:
-        raise ValueError("invalid project config %s: %s" % (path.resolve(), exc)) from exc
-
-    project = data.get("project")
-    if not isinstance(project, dict):
-        raise ValueError("pyproject.toml must define [project]")
-
-    name = project.get("name")
-    if not isinstance(name, str) or not name:
-        raise ValueError("project.name must be a non-empty string")
-    if not dist.metadata.name:
-        dist.metadata.name = name
-
-    authors = project.get("authors", [])
-    if authors is None:
-        authors = []
-    if not isinstance(authors, list):
-        raise ValueError("project.authors must be a list")
-
-    names: List[str] = []
-    emails: List[str] = []
-    for index, author in enumerate(authors):
-        if not isinstance(author, dict):
-            raise ValueError("project.authors[%d] must be a mapping" % index)
-        author_name = author.get("name")
-        author_email = author.get("email")
-        if author_name is not None:
-            if not isinstance(author_name, str) or not author_name:
-                raise ValueError("project.authors[%d].name must be a non-empty string" % index)
-            names.append(author_name)
-        if author_email is not None:
-            if not isinstance(author_email, str) or not author_email:
-                raise ValueError("project.authors[%d].email must be a non-empty string" % index)
-            emails.append(author_email)
-
-    if names and not dist.metadata.author:
-        dist.metadata.author = ", ".join(names)
-    if emails and not dist.metadata.author_email:
-        dist.metadata.author_email = ", ".join(emails)
-
-
 def finalize_distribution_options(dist: setuptools.Distribution) -> None:
     if not (Path.cwd() / _CONFIG_FILE).is_file():
         return
-    _fill_project_metadata(dist)
     context = SetupContext(dist)
     context.convert_files()
 
